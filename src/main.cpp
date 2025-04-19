@@ -27,8 +27,6 @@ int main(int argc, char *argv[]) {
     auto PATH = getenv("PATH");
     auto &&paths = split(PATH, ":");
 
-    int returned = 0;
-
     std::string line;
 
     while (true) {
@@ -41,18 +39,18 @@ int main(int argc, char *argv[]) {
         if (fileName == EXIT || fileName == "") {
             break;
         }
+        bool bg = parsedLine[parsedLine.size() - 1] == "&";
+        if (bg) {
+            parsedLine.pop_back();
+        }
+        if (fileName[0] == '/') {
+            run(fileName, parsedLine, bg);
+        }
         for (auto path : paths) {
-            // if (!fs::exists(path) || !fs::is_directory(path)) {
-            //     continue;
-            // }
             try {
                 if (fileExistsInDir(path, fileName)) {
-                    bool bg = parsedLine[parsedLine.size() - 1] == "&";
-                    if (bg) {
-                        parsedLine.pop_back();
-                    }
 
-                    run(path + "/" + fileName, parsedLine, !bg);
+                    run(path + "/" + fileName, parsedLine, bg);
                     break;
                 }
             } catch (const fs::filesystem_error &e) {
@@ -61,7 +59,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    return returned;
+    return 0;
 }
 
 std::vector<std::string> split(const std::string &string,
@@ -71,7 +69,6 @@ std::vector<std::string> split(const std::string &string,
 
     int next_delim;
     while ((next_delim = substr.find(delim)) > 0) {
-        std::cout << substr.length() << std::endl;
         strings.push_back(substr.substr(0, next_delim));
         substr = substr.substr(next_delim + delim.length(), substr.length());
     }
@@ -142,10 +139,16 @@ bool run(const std::string &path, std::vector<std::string> &cmd,
         c_args.push_back(nullptr); // execv requires null-terminated array
 
         execv(path.c_str(), c_args.data());
+        std::cout << path << " doesn't exist" << std::endl;
         exit(1);
     } else if (!background) {
         // wait
-        std::cerr << "foreground wait unimplemented" << std::endl;
+        int status;
+        if (waitpid(pid, &status, 0) == -1) {
+            perror("waitpid failed");
+        } else {
+            std::cout << "[" << WEXITSTATUS(status) << "]";
+        }
     }
     return 0;
 }
