@@ -1,5 +1,6 @@
 #include <cctype>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <iostream>
 #include <ostream>
@@ -42,6 +43,15 @@ int main(int argc, char *argv[]) {
         bool bg = parsedLine[parsedLine.size() - 1] == "&";
         if (bg) {
             parsedLine.pop_back();
+        }
+
+        if (fileName == "cd") {
+            try {
+                setenv("OLDPWD", fs::current_path().c_str(), 1);
+                fs::current_path(parsedLine[1]);
+            } catch (std::exception e) {
+                std::cout << e.what() << std::endl;
+            }
         }
         if (fileName[0] == '/') {
             run(fileName, parsedLine, bg);
