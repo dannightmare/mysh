@@ -89,16 +89,38 @@ std::vector<std::string> split(const std::string &string,
 std::vector<std::string> parseLine(const std::string &line) {
     std::vector<std::string> tokens;
     std::string current;
+
     bool quoted = false;
     char quote_type = '\0';
     bool escape = false;
+    bool dollar = false;
+    bool open_bracket = false;
 
     int size = line.size();
 
     for (int i = 0; i < size; i++) {
         char c = line[i];
 
-        if (escape) {
+        if (dollar) {
+            if (open_bracket == true) {
+                if (c == '}') {
+                    tokens.push_back(getenv(current.c_str()));
+                    current.clear();
+                    dollar = false;
+                    continue;
+                }
+            } else if (c == '{' && escape) {
+                open_bracket = true;
+            }
+            if (isspace(c)) {
+                tokens.push_back(getenv(current.c_str()));
+                dollar = false;
+                current.clear();
+                continue;
+            }
+            current += c;
+            escape = false;
+        } else if (escape) {
             current += c;
             escape = false;
         } else if (c == '\\') {
@@ -113,13 +135,26 @@ std::vector<std::string> parseLine(const std::string &line) {
             quoted = true;
             quote_type = c;
         } else if (isspace(c)) {
-            tokens.push_back(current);
-            current.clear();
+            if (current.length() > 0) {
+                tokens.push_back(current);
+                current.clear();
+            }
+        } else if (c == '$') {
+            dollar = true;
+            escape = true;
         } else {
             current += c;
         }
     }
 
+    if (dollar) {
+        const char *tmp = getenv(current.c_str());
+        if (tmp == nullptr) {
+            current = "";
+        } else {
+            current = tmp;
+        }
+    }
     tokens.push_back(current);
 
     return tokens;
