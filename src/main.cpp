@@ -17,6 +17,9 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName);
 bool run(const std::string &path, std::vector<std::string> &cmd,
          bool background = false);
 
+// Basically looks for the file in path
+std::string which(const std::string &fileName);
+
 const std::string EXIT = "exit";
 
 int main(int argc, char *argv[]) {
@@ -24,9 +27,6 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < argc; i++) {
         args.push_back(argv[i]);
     }
-
-    auto PATH = getenv("PATH");
-    auto &&paths = split(PATH, ":");
 
     std::string line;
 
@@ -56,17 +56,8 @@ int main(int argc, char *argv[]) {
         if (fileName[0] == '/') {
             run(fileName, parsedLine, bg);
         }
-        for (auto path : paths) {
-            try {
-                if (fileExistsInDir(path, fileName)) {
-
-                    run(path + "/" + fileName, parsedLine, bg);
-                    break;
-                }
-            } catch (const fs::filesystem_error &e) {
-                continue;
-            }
-        }
+        std::string &&commandPath = which(fileName);
+        run(commandPath, parsedLine, bg);
     }
 
     return 0;
@@ -196,4 +187,20 @@ bool run(const std::string &path, std::vector<std::string> &cmd,
         }
     }
     return 0;
+}
+
+std::string which(const std::string &fileName) {
+    std::string PATH = getenv("PATH");
+    std::vector<std::string> &&paths = split(PATH, ":");
+
+    for (auto path : paths) {
+        try {
+            if (fileExistsInDir(path, fileName)) {
+                return path + "/" + fileName;
+            }
+        } catch (const fs::filesystem_error &e) {
+        }
+    }
+
+    return "";
 }
