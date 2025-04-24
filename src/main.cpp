@@ -19,6 +19,7 @@ bool run(const std::string &path, std::vector<std::string> &cmd,
 
 // Basically looks for the file in path
 std::string which(const std::string &fileName);
+inline bool cd(const std::vector<std::string> &parsedLine);
 
 const std::string EXIT = "exit";
 
@@ -46,12 +47,8 @@ int main(int argc, char *argv[]) {
         }
 
         if (fileName == "cd") {
-            try {
-                setenv("OLDPWD", fs::current_path().c_str(), 1);
-                fs::current_path(parsedLine[1]);
-            } catch (std::exception e) {
-                std::cout << e.what() << std::endl;
-            }
+            cd(parsedLine);
+            continue;
         }
         if (fileName[0] == '/') {
             run(fileName, parsedLine, bg);
@@ -203,4 +200,15 @@ std::string which(const std::string &fileName) {
     }
 
     return "";
+}
+
+inline bool cd(const std::vector<std::string> &parsedLine) {
+    try {
+        setenv("OLDPWD", fs::current_path().c_str(), 1);
+        fs::current_path(parsedLine[1]);
+    } catch (std::exception e) {
+        std::cout << e.what() << std::endl;
+        return false;
+    }
+    return true;
 }
