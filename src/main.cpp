@@ -23,8 +23,7 @@ struct Command {
 
     void to_string() {
         std::cout << "out=" << out << "\nin=" << in << "\nbin=" << bin
-                  << "\nbg=" << bg
-                  << "\nappend=" << append << std::endl;
+                  << "\nbg=" << bg << "\nappend=" << append << std::endl;
     }
 };
 
@@ -217,12 +216,12 @@ void replaceIn(const std::string &in) {
     }
 }
 
-void replaceOut(const std::string &out) {
+void replaceOut(const std::string &out, bool append) {
     int fd;
     if (close(STDOUT_FILENO) < 0) {
         throw std::runtime_error("Error close()");
     }
-    if ((fd = open(out.c_str(), O_WRONLY, S_IWUSR | S_IRUSR)) < 0) {
+    if ((fd = open(out.c_str(), O_WRONLY | (append ? O_APPEND : O_CREAT), S_IWUSR | S_IRUSR)) < 0) {
         throw std::runtime_error("Error open()");
     }
     if (dup2(fd, STDOUT_FILENO) < 0) {
@@ -240,7 +239,7 @@ bool myexec(Command &cmd) {
             replaceIn(cmd.in);
         }
         if (cmd.out != "") {
-            replaceOut(cmd.in);
+            replaceOut(cmd.out, cmd.append);
         }
 
         std::vector<char *> c_args;
