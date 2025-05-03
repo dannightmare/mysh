@@ -1,9 +1,11 @@
 #include <cctype>
 #include <cstdlib>
 #include <exception>
+#include <fcntl.h>
 #include <filesystem>
 #include <iostream>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -16,13 +18,13 @@ std::vector<std::string> split(const std::string &string,
 std::vector<std::string> parseLine(const std::string &line);
 bool fileExistsInDir(const std::string &dirPath, const std::string &fileName);
 bool myexec(const std::string &path, std::vector<std::string> &cmd,
-            bool background = false);
+            bool background, std::istream *in, std::ostream *out);
 
 // Basically looks for the file in path
 std::string which(const std::string &fileName);
 inline bool cd(const std::vector<std::string> &parsedLine);
 
-void run(const std::vector<std::string> &command, bool bg);
+void run(std::vector<std::string> &command, bool bg);
 
 const std::string EXIT = "exit";
 
@@ -163,13 +165,50 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName) {
     return false;
 }
 
-bool myexec(const std::string &path, const std::vector<std::string> &cmd,
-            bool background) {
+void replaceIn(const std::string &in) {
+    int fd;
+    if (close(STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error close()");
+    }
+    if ((fd = open(in.c_str(), O_RDONLY, S_IWUSR | S_IRUSR)) < 0) {
+        throw std::runtime_error("Error open()");
+    }
+    if (dup2(fd, STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error dup2()");
+    }
+}
+
+void replaceOut(const std::string &in) {
+    int fd;
+    if (close(STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error close()");
+    }
+    if ((fd = open(in.c_str(), O_WRONLY, S_IWUSR | S_IRUSR)) < 0) {
+        throw std::runtime_error("Error open()");
+    }
+    if (dup2(fd, STDOUT_FILENO) < 0) {
+        throw std::runtime_error("Error dup2()");
+    }
+}
+
+bool myexec(const std::string &path, std::vector<std::string> &cmd,
+            bool background, const std::string &in, const std::string &out) {
     pid_t pid = fork();
     if (pid == -1) {
         std::cerr << "error forking" << std::endl;
     } else if (pid == 0) {
         // exec
+        if (in != "") {
+            cmd.pop_back();
+            cmd.pop_back();
+            replaceIn(in);
+        }
+        if (out != "") {
+            cmd.pop_back();
+            cmd.pop_back();
+            replaceOut(in);
+        }
+
         std::vector<char *> c_args;
 
         for (const auto &arg : cmd) {
@@ -219,11 +258,59 @@ inline bool cd(const std::vector<std::string> &parsedLine) {
     return true;
 }
 
-void run(const std::vector<std::string> &command, bool bg) {
-    const std::string &fileName = command[0];
-    if (fileName[0] == '/') {
-        myexec(fileName, command, bg);
+std::string getInput(std::vector<std::string> &command) {
+    int i;
+    bool flag = false;
+    for (; i < command.size(); i++) {
+        if (command[i] == "<") {
+            flag = true;
+            break;
+        }
     }
-    std::string &&commandPath = which(fileName);
-    myexec(commandPath, command, bg);
+    i++;
+    if (flag) {
+        if (i >= command.size()) {
+            throw std::runtime_error(
+                "syntax incorrect, no filename found after <");
+        }
+        return command[i];
+    }
+    return "";
+}
+
+std::string getOutput(std::vector<std::string> &command) {
+    int i;
+    bool flag = false;
+    for (; i < command.size(); i++) {
+        if (command[i] == ">") {
+            flag = true;
+            break;
+        }
+    }
+    i++;
+    if (flag) {
+        if (i >= command.size()) {
+            throw std::runtime_error(
+                "syntax incorrect, no filename found after >");
+        }
+        return command[i];
+    }
+    return "";
+}
+
+void run(std::vector<std::string> &command, bool bg) {
+    std::string fileName = command[0];
+    std::string &&input = getInput(command);
+    std::string &&output = getOutput(command);
+    std::cout << "input=" << input << std::endl
+              << "output=" << output << std::endl;
+
+    if (fileName[0] != '/') {
+        fileName = which(fileName);
+    }
+    try {
+        myexec(fileName, command, bg, input, output);
+    } catch (std::runtime_error e) {
+        std::cout << e.what() << std::endl;
+    }
 }
