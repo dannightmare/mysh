@@ -1,6 +1,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <exception>
+#include <fcntl.h>
 #include <filesystem>
 #include <iostream>
 #include <ostream>
@@ -206,12 +207,49 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName) {
     return false;
 }
 
+void replaceIn(const std::string &in) {
+    int fd;
+    if (close(STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error close()");
+    }
+    if ((fd = open(in.c_str(), O_RDONLY, S_IWUSR | S_IRUSR)) < 0) {
+        throw std::runtime_error("Error open()");
+    }
+    if (dup2(fd, STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error dup2()");
+    }
+}
+
+void replaceOut(const std::string &in) {
+    int fd;
+    if (close(STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error close()");
+    }
+    if ((fd = open(in.c_str(), O_WRONLY, S_IWUSR | S_IRUSR)) < 0) {
+        throw std::runtime_error("Error open()");
+    }
+    if (dup2(fd, STDOUT_FILENO) < 0) {
+        throw std::runtime_error("Error dup2()");
+    }
+}
+
 bool myexec(Command &cmd) {
     pid_t pid = fork();
     if (pid == -1) {
         std::cerr << "error forking" << std::endl;
     } else if (pid == 0) {
         // exec
+        if (cmd.in != "") {
+            cmd.args.pop_back();
+            cmd.args.pop_back();
+            replaceIn(cmd.in);
+        }
+        if (cmd.out != "") {
+            cmd.args.pop_back();
+            cmd.args.pop_back();
+            replaceOut(cmd.in);
+        }
+
         std::vector<char *> c_args;
 
         for (const auto &arg : cmd.args) {
