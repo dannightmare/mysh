@@ -217,12 +217,12 @@ void replaceIn(const std::string &in) {
     }
 }
 
-void replaceOut(const std::string &in) {
+void replaceOut(const std::string &out) {
     int fd;
-    if (close(STDIN_FILENO) < 0) {
+    if (close(STDOUT_FILENO) < 0) {
         throw std::runtime_error("Error close()");
     }
-    if ((fd = open(in.c_str(), O_WRONLY, S_IWUSR | S_IRUSR)) < 0) {
+    if ((fd = open(out.c_str(), O_WRONLY, S_IWUSR | S_IRUSR)) < 0) {
         throw std::runtime_error("Error open()");
     }
     if (dup2(fd, STDOUT_FILENO) < 0) {
