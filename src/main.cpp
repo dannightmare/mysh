@@ -21,17 +21,13 @@ struct Command {
     bool append = false;
 
     void to_string() {
-        std::cout << "out=" << out <<
-                    "\nin=" << in <<
-                    "\nbin=" << bin <<
-                    "\narg1=" << args[1] <<
-                    "\nbg=" << bg <<
-                    "\nappend=" << append << std::endl;
-
+        std::cout << "out=" << out << "\nin=" << in << "\nbin=" << bin
+                  << "\nbg=" << bg
+                  << "\nappend=" << append << std::endl;
     }
 };
 
-Command parse(const std::vector<std::string>& line);
+Command parse(const std::vector<std::string> &line);
 std::vector<std::string> split(const std::string &string,
                                const std::string &delim);
 std::vector<std::string> tokenize(const std::string &line);
@@ -92,10 +88,10 @@ std::vector<std::string> split(const std::string &string,
     return strings;
 }
 
-Command parse(const std::vector<std::string>& line) {
+Command parse(const std::vector<std::string> &line) {
     Command cmd;
     cmd.bin = line[0];
-    for(int i = 1; i < line.size(); i++) {
+    for (int i = 0; i < line.size(); i++) {
         if (line[i] == "<") {
             cmd.in = line[++i];
         } else if (line[i] == ">") {
@@ -106,7 +102,8 @@ Command parse(const std::vector<std::string>& line) {
             cmd.append = true;
         } else if (line[i] == "&") {
             if (i + 1 < line.size()) {
-                throw std::runtime_error("error parsing, & token is not at the end");
+                throw std::runtime_error(
+                    "error parsing, & token is not at the end");
             }
             cmd.bg = true;
         } else {
@@ -263,9 +260,8 @@ inline bool cd(const std::vector<std::string> &parsedLine) {
 
 void run(Command &cmd) {
     const std::string &fileName = cmd.bin;
-    if (fileName[0] == '/') {
-        myexec(cmd);
+    if (fileName[0] != '/') {
+        cmd.bin = which(fileName);
     }
-    std::string &&commandPath = which(fileName);
     myexec(cmd);
 }
