@@ -237,13 +237,9 @@ bool myexec(Command &cmd) {
     } else if (pid == 0) {
         // exec
         if (cmd.in != "") {
-            cmd.args.pop_back();
-            cmd.args.pop_back();
             replaceIn(cmd.in);
         }
         if (cmd.out != "") {
-            cmd.args.pop_back();
-            cmd.args.pop_back();
             replaceOut(cmd.in);
         }
 
