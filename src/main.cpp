@@ -7,6 +7,7 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <sys/wait.h>
 
 namespace fs = std::filesystem;
 
@@ -14,12 +15,14 @@ std::vector<std::string> split(const std::string &string,
                                const std::string &delim);
 std::vector<std::string> parseLine(const std::string &line);
 bool fileExistsInDir(const std::string &dirPath, const std::string &fileName);
-bool run(const std::string &path, std::vector<std::string> &cmd,
+bool myexec(const std::string &path, std::vector<std::string> &cmd,
          bool background = false);
 
 // Basically looks for the file in path
 std::string which(const std::string &fileName);
 inline bool cd(const std::vector<std::string> &parsedLine);
+
+void run(const std::vector<std::string> &command, bool bg);
 
 const std::string EXIT = "exit";
 
@@ -50,11 +53,7 @@ int main(int argc, char *argv[]) {
             cd(parsedLine);
             continue;
         }
-        if (fileName[0] == '/') {
-            run(fileName, parsedLine, bg);
-        }
-        std::string &&commandPath = which(fileName);
-        run(commandPath, parsedLine, bg);
+        run(parsedLine, bg);
     }
 
     return 0;
@@ -157,7 +156,7 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName) {
     return false;
 }
 
-bool run(const std::string &path, std::vector<std::string> &cmd,
+bool myexec(const std::string &path, const std::vector<std::string> &cmd,
          bool background) {
     pid_t pid = fork();
     if (pid == -1) {
@@ -211,4 +210,13 @@ inline bool cd(const std::vector<std::string> &parsedLine) {
         return false;
     }
     return true;
+}
+
+void run(const std::vector<std::string> &command, bool bg) {
+    const std::string &fileName = command[0];
+        if (fileName[0] == '/') {
+            myexec(fileName, command, bg);
+        }
+        std::string &&commandPath = which(fileName);
+        myexec(commandPath, command, bg);
 }
