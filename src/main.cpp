@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <iostream>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -11,18 +12,37 @@
 
 namespace fs = std::filesystem;
 
+struct Command {
+    std::string out = "";
+    std::string in = "";
+    std::string bin = "";
+    std::vector<std::string> args;
+    bool bg = false;
+    bool append = false;
+
+    void to_string() {
+        std::cout << "out=" << out <<
+                    "\nin=" << in <<
+                    "\nbin=" << bin <<
+                    "\narg1=" << args[1] <<
+                    "\nbg=" << bg <<
+                    "\nappend=" << append << std::endl;
+
+    }
+};
+
+Command parse(const std::vector<std::string>& line);
 std::vector<std::string> split(const std::string &string,
                                const std::string &delim);
-std::vector<std::string> parseLine(const std::string &line);
+std::vector<std::string> tokenize(const std::string &line);
 bool fileExistsInDir(const std::string &dirPath, const std::string &fileName);
-bool myexec(const std::string &path, std::vector<std::string> &cmd,
-            bool background = false);
+bool myexec(Command &cmd);
 
 // Basically looks for the file in path
 std::string which(const std::string &fileName);
 inline bool cd(const std::vector<std::string> &parsedLine);
 
-void run(const std::vector<std::string> &command, bool bg);
+void run(Command &cmd);
 
 const std::string EXIT = "exit";
 
@@ -37,23 +57,22 @@ int main(int argc, char *argv[]) {
     while (true) {
         std::cout << fs::current_path() << std::endl;
         std::getline(std::cin, line);
-        std::vector<std::string> parsedLine = parseLine(line);
+        std::vector<std::string> parsedLine = tokenize(line);
+        Command &&cmd = parse(parsedLine);
 
-        std::string fileName = parsedLine[0];
+        cmd.to_string();
 
-        if (fileName == EXIT || fileName == "") {
+        std::string fileName = cmd.bin;
+
+        if (fileName == EXIT) {
             break;
-        }
-        bool bg = parsedLine[parsedLine.size() - 1] == "&";
-        if (bg) {
-            parsedLine.pop_back();
         }
 
         if (fileName == "cd") {
-            cd(parsedLine);
+            cd(cmd.args);
             continue;
         }
-        run(parsedLine, bg);
+        run(cmd);
     }
 
     return 0;
@@ -73,7 +92,31 @@ std::vector<std::string> split(const std::string &string,
     return strings;
 }
 
-std::vector<std::string> parseLine(const std::string &line) {
+Command parse(const std::vector<std::string>& line) {
+    Command cmd;
+    cmd.bin = line[0];
+    for(int i = 1; i < line.size(); i++) {
+        if (line[i] == "<") {
+            cmd.in = line[++i];
+        } else if (line[i] == ">") {
+            cmd.out = line[++i];
+            cmd.append = false;
+        } else if (line[i] == ">>") {
+            cmd.out = line[++i];
+            cmd.append = true;
+        } else if (line[i] == "&") {
+            if (i + 1 < line.size()) {
+                throw std::runtime_error("error parsing, & token is not at the end");
+            }
+            cmd.bg = true;
+        } else {
+            cmd.args.push_back(line[i]);
+        }
+    }
+    return cmd;
+}
+
+std::vector<std::string> tokenize(const std::string &line) {
     std::vector<std::string> tokens;
     std::string current;
 
@@ -163,8 +206,7 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName) {
     return false;
 }
 
-bool myexec(const std::string &path, const std::vector<std::string> &cmd,
-            bool background) {
+bool myexec(Command &cmd) {
     pid_t pid = fork();
     if (pid == -1) {
         std::cerr << "error forking" << std::endl;
@@ -172,15 +214,15 @@ bool myexec(const std::string &path, const std::vector<std::string> &cmd,
         // exec
         std::vector<char *> c_args;
 
-        for (const auto &arg : cmd) {
+        for (const auto &arg : cmd.args) {
             c_args.push_back(const_cast<char *>(arg.c_str()));
         }
         c_args.push_back(nullptr); // execv requires null-terminated array
 
-        execv(path.c_str(), c_args.data());
-        std::cout << path << " doesn't exist" << std::endl;
+        execv(cmd.bin.c_str(), c_args.data());
+        std::cout << cmd.bin << " doesn't exist" << std::endl;
         exit(1);
-    } else if (!background) {
+    } else if (!cmd.bg) {
         // wait
         int status;
         if (waitpid(pid, &status, 0) == -1) {
@@ -219,11 +261,11 @@ inline bool cd(const std::vector<std::string> &parsedLine) {
     return true;
 }
 
-void run(const std::vector<std::string> &command, bool bg) {
-    const std::string &fileName = command[0];
+void run(Command &cmd) {
+    const std::string &fileName = cmd.bin;
     if (fileName[0] == '/') {
-        myexec(fileName, command, bg);
+        myexec(cmd);
     }
     std::string &&commandPath = which(fileName);
-    myexec(commandPath, command, bg);
+    myexec(cmd);
 }
