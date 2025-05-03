@@ -5,9 +5,9 @@
 #include <iostream>
 #include <ostream>
 #include <string>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
-#include <sys/wait.h>
 
 namespace fs = std::filesystem;
 
@@ -16,7 +16,7 @@ std::vector<std::string> split(const std::string &string,
 std::vector<std::string> parseLine(const std::string &line);
 bool fileExistsInDir(const std::string &dirPath, const std::string &fileName);
 bool myexec(const std::string &path, std::vector<std::string> &cmd,
-         bool background = false);
+            bool background = false);
 
 // Basically looks for the file in path
 std::string which(const std::string &fileName);
@@ -91,16 +91,23 @@ std::vector<std::string> parseLine(const std::string &line) {
         if (dollar) {
             if (open_bracket == true) {
                 if (c == '}') {
-                    tokens.push_back(getenv(current.c_str()));
+                    const char *str = getenv(current.c_str());
+                    if (str != nullptr) {
+                        tokens.push_back(str);
+                    }
                     current.clear();
                     dollar = false;
                     continue;
                 }
             } else if (c == '{' && escape) {
                 open_bracket = true;
-            }
-            if (isspace(c)) {
-                tokens.push_back(getenv(current.c_str()));
+                escape = false;
+                continue;
+            } else if (isspace(c)) {
+                const char *str = getenv(current.c_str());
+                if (str != nullptr) {
+                    tokens.push_back(str);
+                }
                 dollar = false;
                 current.clear();
                 continue;
@@ -157,7 +164,7 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName) {
 }
 
 bool myexec(const std::string &path, const std::vector<std::string> &cmd,
-         bool background) {
+            bool background) {
     pid_t pid = fork();
     if (pid == -1) {
         std::cerr << "error forking" << std::endl;
@@ -214,9 +221,9 @@ inline bool cd(const std::vector<std::string> &parsedLine) {
 
 void run(const std::vector<std::string> &command, bool bg) {
     const std::string &fileName = command[0];
-        if (fileName[0] == '/') {
-            myexec(fileName, command, bg);
-        }
-        std::string &&commandPath = which(fileName);
-        myexec(commandPath, command, bg);
+    if (fileName[0] == '/') {
+        myexec(fileName, command, bg);
+    }
+    std::string &&commandPath = which(fileName);
+    myexec(commandPath, command, bg);
 }
