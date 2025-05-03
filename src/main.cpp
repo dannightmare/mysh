@@ -1,21 +1,44 @@
 #include <cctype>
 #include <cstdlib>
 #include <exception>
+#include <fcntl.h>
 #include <filesystem>
 #include <iostream>
 #include <ostream>
+#include <stdexcept>
 #include <string>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
 namespace fs = std::filesystem;
 
+struct Command {
+    std::string out = "";
+    std::string in = "";
+    std::string bin = "";
+    std::vector<std::string> args;
+    bool bg = false;
+    bool append = false;
+
+    void to_string() {
+        std::cout << "out=" << out << "\nin=" << in << "\nbin=" << bin
+                  << "\nbg=" << bg << "\nappend=" << append << std::endl;
+    }
+};
+
+Command parse(const std::vector<std::string> &line);
 std::vector<std::string> split(const std::string &string,
                                const std::string &delim);
-std::vector<std::string> parseLine(const std::string &line);
+std::vector<std::string> tokenize(const std::string &line);
 bool fileExistsInDir(const std::string &dirPath, const std::string &fileName);
-bool run(const std::string &path, std::vector<std::string> &cmd,
-         bool background = false);
+bool myexec(Command &cmd);
+
+// Basically looks for the file in path
+std::string which(const std::string &fileName);
+inline bool cd(const std::vector<std::string> &parsedLine);
+
+void run(Command &cmd);
 
 const std::string EXIT = "exit";
 
@@ -25,48 +48,27 @@ int main(int argc, char *argv[]) {
         args.push_back(argv[i]);
     }
 
-    auto PATH = getenv("PATH");
-    auto &&paths = split(PATH, ":");
-
     std::string line;
 
     while (true) {
         std::cout << fs::current_path() << std::endl;
         std::getline(std::cin, line);
-        std::vector<std::string> parsedLine = parseLine(line);
+        std::vector<std::string> parsedLine = tokenize(line);
+        Command &&cmd = parse(parsedLine);
 
-        std::string fileName = parsedLine[0];
+        cmd.to_string();
 
-        if (fileName == EXIT || fileName == "") {
+        std::string fileName = cmd.bin;
+
+        if (fileName == EXIT) {
             break;
-        }
-        bool bg = parsedLine[parsedLine.size() - 1] == "&";
-        if (bg) {
-            parsedLine.pop_back();
         }
 
         if (fileName == "cd") {
-            try {
-                setenv("OLDPWD", fs::current_path().c_str(), 1);
-                fs::current_path(parsedLine[1]);
-            } catch (std::exception e) {
-                std::cout << e.what() << std::endl;
-            }
+            cd(cmd.args);
+            continue;
         }
-        if (fileName[0] == '/') {
-            run(fileName, parsedLine, bg);
-        }
-        for (auto path : paths) {
-            try {
-                if (fileExistsInDir(path, fileName)) {
-
-                    run(path + "/" + fileName, parsedLine, bg);
-                    break;
-                }
-            } catch (const fs::filesystem_error &e) {
-                continue;
-            }
-        }
+        run(cmd);
     }
 
     return 0;
@@ -86,7 +88,32 @@ std::vector<std::string> split(const std::string &string,
     return strings;
 }
 
-std::vector<std::string> parseLine(const std::string &line) {
+Command parse(const std::vector<std::string> &line) {
+    Command cmd;
+    cmd.bin = line[0];
+    for (int i = 0; i < line.size(); i++) {
+        if (line[i] == "<") {
+            cmd.in = line[++i];
+        } else if (line[i] == ">") {
+            cmd.out = line[++i];
+            cmd.append = false;
+        } else if (line[i] == ">>") {
+            cmd.out = line[++i];
+            cmd.append = true;
+        } else if (line[i] == "&") {
+            if (i + 1 < line.size()) {
+                throw std::runtime_error(
+                    "error parsing, & token is not at the end");
+            }
+            cmd.bg = true;
+        } else {
+            cmd.args.push_back(line[i]);
+        }
+    }
+    return cmd;
+}
+
+std::vector<std::string> tokenize(const std::string &line) {
     std::vector<std::string> tokens;
     std::string current;
 
@@ -104,16 +131,23 @@ std::vector<std::string> parseLine(const std::string &line) {
         if (dollar) {
             if (open_bracket == true) {
                 if (c == '}') {
-                    tokens.push_back(getenv(current.c_str()));
+                    const char *str = getenv(current.c_str());
+                    if (str != nullptr) {
+                        tokens.push_back(str);
+                    }
                     current.clear();
                     dollar = false;
                     continue;
                 }
             } else if (c == '{' && escape) {
                 open_bracket = true;
-            }
-            if (isspace(c)) {
-                tokens.push_back(getenv(current.c_str()));
+                escape = false;
+                continue;
+            } else if (isspace(c)) {
+                const char *str = getenv(current.c_str());
+                if (str != nullptr) {
+                    tokens.push_back(str);
+                }
                 dollar = false;
                 current.clear();
                 continue;
@@ -169,24 +203,56 @@ bool fileExistsInDir(const std::string &dirPath, const std::string &fileName) {
     return false;
 }
 
-bool run(const std::string &path, std::vector<std::string> &cmd,
-         bool background) {
+void replaceIn(const std::string &in) {
+    int fd;
+    if (close(STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error close()");
+    }
+    if ((fd = open(in.c_str(), O_RDONLY, S_IWUSR | S_IRUSR)) < 0) {
+        throw std::runtime_error("Error open()");
+    }
+    if (dup2(fd, STDIN_FILENO) < 0) {
+        throw std::runtime_error("Error dup2()");
+    }
+}
+
+void replaceOut(const std::string &out, bool append) {
+    int fd;
+    if (close(STDOUT_FILENO) < 0) {
+        throw std::runtime_error("Error close()");
+    }
+    if ((fd = open(out.c_str(), O_WRONLY | (append ? O_APPEND : O_CREAT), S_IWUSR | S_IRUSR)) < 0) {
+        throw std::runtime_error("Error open()");
+    }
+    if (dup2(fd, STDOUT_FILENO) < 0) {
+        throw std::runtime_error("Error dup2()");
+    }
+}
+
+bool myexec(Command &cmd) {
     pid_t pid = fork();
     if (pid == -1) {
         std::cerr << "error forking" << std::endl;
     } else if (pid == 0) {
         // exec
+        if (cmd.in != "") {
+            replaceIn(cmd.in);
+        }
+        if (cmd.out != "") {
+            replaceOut(cmd.out, cmd.append);
+        }
+
         std::vector<char *> c_args;
 
-        for (const auto &arg : cmd) {
+        for (const auto &arg : cmd.args) {
             c_args.push_back(const_cast<char *>(arg.c_str()));
         }
         c_args.push_back(nullptr); // execv requires null-terminated array
 
-        execv(path.c_str(), c_args.data());
-        std::cout << path << " doesn't exist" << std::endl;
+        execv(cmd.bin.c_str(), c_args.data());
+        std::cout << cmd.bin << " doesn't exist" << std::endl;
         exit(1);
-    } else if (!background) {
+    } else if (!cmd.bg) {
         // wait
         int status;
         if (waitpid(pid, &status, 0) == -1) {
@@ -196,4 +262,39 @@ bool run(const std::string &path, std::vector<std::string> &cmd,
         }
     }
     return 0;
+}
+
+std::string which(const std::string &fileName) {
+    std::string PATH = getenv("PATH");
+    std::vector<std::string> &&paths = split(PATH, ":");
+
+    for (auto path : paths) {
+        try {
+            if (fileExistsInDir(path, fileName)) {
+                return path + "/" + fileName;
+            }
+        } catch (const fs::filesystem_error &e) {
+        }
+    }
+
+    return "";
+}
+
+inline bool cd(const std::vector<std::string> &parsedLine) {
+    try {
+        setenv("OLDPWD", fs::current_path().c_str(), 1);
+        fs::current_path(parsedLine[1]);
+    } catch (std::exception e) {
+        std::cout << e.what() << std::endl;
+        return false;
+    }
+    return true;
+}
+
+void run(Command &cmd) {
+    const std::string &fileName = cmd.bin;
+    if (fileName[0] != '/') {
+        cmd.bin = which(fileName);
+    }
+    myexec(cmd);
 }
